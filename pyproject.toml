@@ -2,10 +2,12 @@
 name = "classificador-de-tickets"
 version = "0.1.0"
 description = ""
+requires-python = ">=3.13,<4.0"
+
 authors = [
     {name = "Onnboy",email = "bomfimsantarosa@gmail.com"}
 ]
-requires-python = ">=3.13"
+
 dependencies = [
     "fastapi[standard]>=0.115.0",
     "uvicorn (>=0.40.0,<0.41.0)"
@@ -14,6 +16,39 @@ dependencies = [
 [tool.poetry]
 package-mode = false
 
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.2,<10.0.0)",
+    "pytest-cov (>=7.0.0,<8.0.0)",
+    "ruff (>=0.15.0,<0.16.0)",
+    "taskipy (>=1.14.1,<2.0.0)"
+]
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 79
+extend-exclude = ['migrations']
+
+[tool.ruff.lint]
+preview = true
+select = ['I','F','E','W','PL','PT']
+
+[tool.ruff.format]
+preview = true
+quote-style = 'single'
+
+[tool.pytest.ini_options]
+pythonpath = "."
+addopts = '-p no:warnings'
+
+[tool.taskipy.tasks]
+lint = 'ruff check'
+pre_format = 'ruff check --fix'
+format = 'ruff format'
+run = 'fastapi dev app/app.py'
+pre_test = 'task lint'
+test = 'pytest -s -x --cov=app -vv'
+post_test = 'coverage html'
