@@ -18,9 +18,10 @@ def test_add_ticket_app_sucesso():
 
     response = client.post(
         '/v1/tickets/',
-        json={'titulo': 'Teste', 'descricao': 'Teste de Sucesso'},
+        json={'titulo': 'Teste com Titulo com +de DEZ caracteres', 'descricao': 'Teste de Sucesso'},
     )
     assert response.status_code == HTTPStatus.OK
+    assert response.status_code == HTTPStatus.CREATED
     assert response.json() == 'Recebido'
 
 
