@@ -10,7 +10,9 @@ authors = [
 
 dependencies = [
     "fastapi[standard]>=0.115.0",
-    "uvicorn (>=0.40.0,<0.41.0)"
+    "uvicorn (>=0.40.0,<0.41.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)",
+    "google-genai (>=1.63.0,<2.0.0)",
 ]
 
 [tool.poetry]
