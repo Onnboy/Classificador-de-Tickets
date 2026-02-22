@@ -1,3 +1,4 @@
+import json
 import os
 
 from dotenv import load_dotenv
@@ -25,24 +26,37 @@ def read_state():
 )
 async def create_ticket(ticket: Ticket):
     try:
+        prompt_ia = f'Titulo: {ticket.titulo}\nDescrição: {ticket.descricao}'
+
         resposta_ia = await client.aio.models.generate_content(
             model='gemini-2.5-flash',
-            contents=f"Ticket: {ticket.titulo}",
+            contents=prompt_ia,
             config={
-                'system_instruction': 'Você é um classificador de tickets. '
-                'Responda APENAS com uma palavra: Dúvida, Bug ou Critico.'
-            }
+                'response_mime_type': 'application/json',
+                'system_instruction': (
+                    'Voce é um classificador de tickets. '
+                    'Analise o ticket e retorne obrigatoriamente um JSON '
+                    "com os campos exatos: 'categoria', 'urgencia' e 'resumo'."
+                    'Categorias:  Dúvida, Bug, Critico. '
+                    'Urgência: Baixa, Média, Alta. '
+                    'Resumo: No máximo 15 palavras. '
+                ),
+            },
         )
-        categoria = resposta_ia.text.strip().replace(".", "").capitalize()
-        print(f'IA classificou como: {categoria}')
+        classificacao_ia = json.loads(resposta_ia.text)
+        print(f'IA classificou como: {classificacao_ia}')
 
     except Exception as e:
         print(f'Erro no IA: {e}')
-        categoria = 'Não classificado (Erro na IA)'
+        classificacao_ia = {
+            'categoria': 'Não classificado',
+            'urgencia': 'N/A',
+            'resumo': 'Erro ao processar com IA',
+        }
 
     return {
         'mensagem': 'Ticket processado',
-        'classe': categoria,
+        'classe': classificacao_ia,
         'dados_originais': ticket,
     }
 
