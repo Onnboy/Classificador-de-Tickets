@@ -6,7 +6,13 @@ class Ticket(BaseModel):
     descricao: str
 
 
+class IAClassificacao(BaseModel):
+    categoria: str
+    urgencia: str
+    resumo: str
+
+
 class TicketResponse(BaseModel):
     mensagem: str
-    classe: str
+    classe: IAClassificacao
     dados_originais: Ticket
