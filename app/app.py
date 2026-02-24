@@ -1,17 +1,16 @@
 import json
 import os
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, status
 from google import genai
 
+from app.config import settings
 from .schemas import Ticket, TicketResponse
 
-load_dotenv()
 app = FastAPI()
 router = APIRouter(prefix='/v1')
 
-client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
 @app.get('/health')
