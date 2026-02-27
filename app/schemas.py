@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field
 
+from .models.ticket import Ticket
 
-class Ticket(BaseModel):
+
+class TicketRequest(BaseModel):
     titulo: str = Field(..., min_length=10)
     descricao: str
 
