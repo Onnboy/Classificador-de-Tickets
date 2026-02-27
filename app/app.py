@@ -1,11 +1,12 @@
 import json
-import os
 
 from fastapi import APIRouter, FastAPI, status
 from google import genai
 
 from app.config import settings
-from .schemas import Ticket, TicketResponse
+
+from .models.ticket import Ticket
+from .schemas import TicketRequest, TicketResponse
 
 app = FastAPI()
 router = APIRouter(prefix='/v1')
@@ -23,7 +24,7 @@ def read_state():
     status_code=status.HTTP_201_CREATED,
     response_model=TicketResponse,
 )
-async def create_ticket(ticket: Ticket):
+async def create_ticket(ticket: TicketRequest):
     try:
         prompt_ia = f'Titulo: {ticket.titulo}\nDescrição: {ticket.descricao}'
 
@@ -43,6 +44,14 @@ async def create_ticket(ticket: Ticket):
             },
         )
         classificacao_ia = json.loads(resposta_ia.text)
+
+        novo_ticket = Ticket(
+            titulo=ticket.titulo,
+            descricao=ticket.descricao,
+            categoria=classificacao_ia.get('categoria'),
+            prioridade=classificacao_ia.get('urgencia'),
+        )
+
         print(f'IA classificou como: {classificacao_ia}')
 
     except Exception as e:
@@ -53,10 +62,17 @@ async def create_ticket(ticket: Ticket):
             'resumo': 'Erro ao processar com IA',
         }
 
+        novo_ticket = Ticket(
+            titulo=ticket.titulo,
+            descricao=ticket.descricao,
+            categoria='Erro',
+            prioridade='N/A',
+        )
+
     return {
         'mensagem': 'Ticket processado',
         'classe': classificacao_ia,
-        'dados_originais': ticket,
+        'dados_originais': novo_ticket,
     }
 
 
