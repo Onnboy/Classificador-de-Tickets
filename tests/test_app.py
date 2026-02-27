@@ -18,17 +18,29 @@ def test_health_app():
 
 @pytest.mark.anyio
 async def test_add_ticket_app_sucesso():
-    tp = ASGITransport(app=app)
-    async with AsyncClient(transport=tp, base_url='http://test') as ac:
-        payload = {
-            'titulo': 'Teste com titulo com + de 10 carcterers',
-            'descricao': 'Descrição técnica de teste de Sucesso',
-        }
-        response = await ac.post('/v1/tickets/', json=payload)
+    targ = 'app.app.client.aio.models.generate_content'
+    mock_response = AsyncMock()
+    mock_response.text = (
+        '{"categoria": "Dúvida","urgencia": "Baixa", "resumo": "Teste"}'
+    )
+
+    with patch(targ, return_value=mock_response):
+        tp = ASGITransport(app=app)
+        async with AsyncClient(transport=tp, base_url='http://test') as ac:
+            payload = {
+                'titulo': 'Teste com titulo com + de 10 carcterers',
+                'descricao': 'Descrição técnica de teste de Sucesso',
+            }
+            response = await ac.post('/v1/tickets/', json=payload)
+
+    data = response.json()
 
     assert response.status_code == HTTPStatus.CREATED
-    assert 'categoria' in response.json()['classe']
-    assert 'urgencia' in response.json()['classe']
+    assert 'id' in data['dados_originais']
+    assert 'criado_em' in data['dados_originais']
+    assert 'prioridade' in data['dados_originais']
+    assert 'categoria' in data['classe']
+    assert 'urgencia' in data['classe']
 
 
 @pytest.mark.anyio
