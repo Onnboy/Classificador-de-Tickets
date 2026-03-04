@@ -1,14 +1,23 @@
 import json
+from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, status
+from fastapi import APIRouter, Depends, FastAPI, status
 from google import genai
+from sqlmodel import Session
 
 from app.config import settings
+from app.database import criar_db_table, get_session
+from app.models.ticket import Ticket
+from app.schemas import TicketRequest, TicketResponse
 
-from .models.ticket import Ticket
-from .schemas import TicketRequest, TicketResponse
 
-app = FastAPI()
+@asynccontextmanager
+async def initialization(_: FastAPI):
+    criar_db_table()
+    yield
+
+
+app = FastAPI(lifespan=initialization)
 router = APIRouter(prefix='/v1')
 
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -24,7 +33,9 @@ def read_state():
     status_code=status.HTTP_201_CREATED,
     response_model=TicketResponse,
 )
-async def create_ticket(ticket: TicketRequest):
+async def create_ticket(
+    ticket: TicketRequest, session: Session = Depends(get_session)
+):
     try:
         prompt_ia = f'Titulo: {ticket.titulo}\nDescrição: {ticket.descricao}'
 
@@ -52,6 +63,10 @@ async def create_ticket(ticket: TicketRequest):
             prioridade=classificacao_ia.get('urgencia'),
         )
 
+        session.add(novo_ticket)
+        session.commit()
+        session.refresh(novo_ticket)
+
         print(f'IA classificou como: {classificacao_ia}')
 
     except Exception as e:
@@ -68,6 +83,9 @@ async def create_ticket(ticket: TicketRequest):
             categoria='Erro',
             prioridade='N/A',
         )
+        session.add(novo_ticket)
+        session.commit()
+        session.refresh(novo_ticket)
 
     return {
         'mensagem': 'Ticket processado',
