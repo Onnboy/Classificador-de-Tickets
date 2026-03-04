@@ -6,7 +6,7 @@ class Settings(BaseSettings):
         env_file='.env', env_file_encoding='utf-8'
     )
     GEMINI_API_KEY: str
-    DATABASE_URL: str = 'postgresql://user:password@localhost:5432/tickets_db'
+    DATABASE_URL: str
 
 
 settings = Settings()
