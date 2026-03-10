@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, status
 from google import genai
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import criar_db_table, get_session
@@ -92,6 +92,23 @@ async def create_ticket(
         'classe': classificacao_ia,
         'dados_originais': novo_ticket,
     }
+
+
+@router.get('/tickets/', response_model=list[TicketResponse])
+async def list_tickets(session: Session = Depends(get_session)):
+    tickets = session.exec(select(Ticket)).all()
+    return [
+        {
+            'mensagem': 'Ticket recuperado do histórico',
+            'classe': {
+                'categoria': t.categoria,
+                'urgencia': t.prioridade,
+                'resumo': 'Recuperado do banco',
+            },
+            'dados_originais': t,
+        }
+        for t in tickets
+    ]
 
 
 app.include_router(router)
