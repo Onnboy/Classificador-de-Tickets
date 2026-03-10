@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.app import app
@@ -95,8 +95,24 @@ async def test_add_ticket_ai_falha():
     SQLModel.metadata.drop_all(engine_test)
 
 
-def test_add_ticket_app_error():
+@pytest.mark.anyio
+async def test_add_ticket_app_error():
     client = TestClient(app)
     response = client.post('/v1/tickets/')
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.anyio
+async def test_get_tickets_sucesso():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        response: Response = await ac.get('/v1/tickets/')
+        assert response.status_code == HTTPStatus.OK
+        assert isinstance(response.json(), list)
+
+    app.dependency_overrides.clear()
+    SQLModel.metadata.drop_all(engine_test)
