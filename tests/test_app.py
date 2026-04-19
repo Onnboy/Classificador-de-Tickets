@@ -9,6 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.app import app
 from app.database import get_session
 from app.models.ticket import Ticket
+from app.models.user import User
 
 engine_test = create_engine(
     'sqlite://', connect_args={'check_same_thread': False}
@@ -113,6 +114,39 @@ async def test_get_tickets_sucesso():
         response: Response = await ac.get('/v1/tickets/')
         assert response.status_code == HTTPStatus.OK
         assert isinstance(response.json(), list)
+
+    app.dependency_overrides.clear()
+    SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_create_user_sucesso():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        payload = {
+            'username': 'testuser',
+            'email': 'test@example.com',
+            'password': 'password123',
+        }
+        response = await ac.post('/v1/users/', json=payload)
+
+    data = response.json()
+    assert response.status_code == HTTPStatus.CREATED
+    assert data['username'] == 'testuser'
+    assert data['email'] == 'test@example.com'
+    assert 'id' in data
+    assert 'password' not in data
+
+    with Session(engine_test) as session:
+        user = session.exec(
+            select(User).where(User.username == 'testuser')
+        ).first()
+        assert user is not None
+        assert user.hashed_password != 'password123'
+        assert user.hashed_password.startswith('$2b$')
 
     app.dependency_overrides.clear()
     SQLModel.metadata.drop_all(engine_test)
