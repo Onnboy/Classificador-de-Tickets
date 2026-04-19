@@ -3,12 +3,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, status
 from google import genai
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import settings
+from app.core.security import hash_password
 from app.database import criar_db_table, get_session
 from app.models.ticket import Ticket
-from app.schemas import TicketRequest, TicketResponse
+from app.models.user import User
+from app.schemas import TicketRequest, TicketResponse, UserCreate, UserPublic
 
 
 @asynccontextmanager
@@ -92,6 +94,42 @@ async def create_ticket(
         'classe': classificacao_ia,
         'dados_originais': novo_ticket,
     }
+
+
+@router.get('/tickets/', response_model=list[TicketResponse])
+async def list_tickets(session: Session = Depends(get_session)):
+    tickets = session.exec(select(Ticket)).all()
+    return [
+        {
+            'mensagem': 'Ticket recuperado do histórico',
+            'classe': {
+                'categoria': t.categoria,
+                'urgencia': t.prioridade,
+                'resumo': 'Recuperado do banco',
+            },
+            'dados_originais': t,
+        }
+        for t in tickets
+    ]
+
+
+@router.post(
+    '/users/', status_code=status.HTTP_201_CREATED, response_model=UserPublic
+)
+async def create_user(
+    user: UserCreate, session: Session = Depends(get_session)
+):
+    hashed_pwd = hash_password(user.password)
+
+    novo_usuario = User(
+        username=user.username, email=user.email, hashed_password=hashed_pwd
+    )
+
+    session.add(novo_usuario)
+    session.commit()
+    session.refresh(novo_usuario)
+
+    return novo_usuario
 
 
 app.include_router(router)
