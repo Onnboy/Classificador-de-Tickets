@@ -150,3 +150,12 @@ async def test_create_user_sucesso():
 
     app.dependency_overrides.clear()
     SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_get_tickets_sem_token_deve_falhar():
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        response = await ac.get('/v1/tickets/')
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
