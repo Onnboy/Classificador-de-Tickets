@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-
+from datetime import datetime
 from .models.ticket import Ticket
 
 
@@ -31,6 +31,18 @@ class UserPublic(BaseModel):
     username: str
     email: EmailStr
     is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class TicketPublic(BaseModel):
+    id: int
+    titulo: str
+    descricao: str
+    categoria: str
+    prioridade: str
+    criado_em: datetime
 
     class Config:
         from_attributes = True
