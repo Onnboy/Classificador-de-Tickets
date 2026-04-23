@@ -9,9 +9,10 @@ from app.database import get_session
 
 
 @pytest.mark.anyio
-async def test_login_sucesso(engine_test, sbrescrever_get_session):
-    SQLModel.metadata.create_all(engine_test)
-    app.dependency_overrides[get_session] = sbrescrever_get_session
+async def test_login_sucesso(engine, override_get_session):
+
+    SQLModel.metadata.create_all(engine)
+    app.dependency_overrides[get_session] = override_get_session
 
     tp = ASGITransport(app=app)
     async with AsyncClient(transport=tp, base_url='http://test') as ac:
@@ -33,4 +34,4 @@ async def test_login_sucesso(engine_test, sbrescrever_get_session):
         assert data['token_type'] == 'bearer'
 
     app.dependency_overrides.clear()
-    SQLModel.metadata.drop_all(engine_test)
+    SQLModel.metadata.drop_all(engine)
