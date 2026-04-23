@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     )
     GEMINI_API_KEY: str
     DATABASE_URL: str
+    SECRET_KEY: str
+    ALGORITHM: str = 'HS256'
 
 
 settings = Settings()

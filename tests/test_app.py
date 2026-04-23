@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient, Response
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.app import app
+from app.core.security import get_current_user
 from app.database import get_session
 from app.models.ticket import Ticket
 from app.models.user import User
@@ -108,10 +109,12 @@ async def test_add_ticket_app_error():
 async def test_get_tickets_sucesso():
     SQLModel.metadata.create_all(engine_test)
     app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
 
     tp = ASGITransport(app=app)
     async with AsyncClient(transport=tp, base_url='http://test') as ac:
         response: Response = await ac.get('/v1/tickets/')
+
         assert response.status_code == HTTPStatus.OK
         assert isinstance(response.json(), list)
 
@@ -150,3 +153,12 @@ async def test_create_user_sucesso():
 
     app.dependency_overrides.clear()
     SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_get_tickets_sem_token_deve_falhar():
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        response = await ac.get('/v1/tickets/')
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
