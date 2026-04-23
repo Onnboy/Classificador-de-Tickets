@@ -1,19 +1,28 @@
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, Depends, FastAPI, status, HTTPException
-from google import genai
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from google import genai
 from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session, select
+
 from app.config import settings
-from app.core.security import hash_password, get_current_user
+from app.core.security import (
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from app.database import criar_db_table, get_session
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.schemas import TicketRequest, TicketResponse, UserCreate, UserPublic, TicketPublic
-from app.core.security import get_current_user
-from app.core.security import create_access_token, verify_password
+from app.schemas import (
+    TicketRequest,
+    TicketResponse,
+    UserCreate,
+    UserPublic,
+)
 
 
 @asynccontextmanager
@@ -100,7 +109,10 @@ async def create_ticket(
 
 
 @router.get('/tickets/', response_model=list[TicketResponse])
-async def list_tickets(session: Session = Depends(get_session)):
+async def list_tickets(
+    session: Session = Depends(get_session),
+    _user: str = Depends(get_current_user),
+):
     tickets = session.exec(select(Ticket)).all()
     return [
         {
@@ -125,9 +137,7 @@ async def create_user(
     hashed_pwd = hash_password(user.password)
 
     novo_usuario = User(
-        username=user.username, 
-        email=user.email, 
-        hashed_password=hashed_pwd
+        username=user.username, email=user.email, hashed_password=hashed_pwd
     )
     try:
         session.add(novo_usuario)
@@ -138,24 +148,29 @@ async def create_user(
         session.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Usuário ou e-mail já cadastrado no sistema"
+            detail='Usuário ou e-mail já cadastrado no sistema',
         )
 
 
 @router.post('/auth/token')
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
-    user = session.exec(select(User).where(User.username == form_data.username)).first()
+    user = session.exec(
+        select(User).where(User.username == form_data.username)
+    ).first()
 
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    if not user or not verify_password(
+        form_data.password, user.hashed_password
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário ou senha incorretos"
+            detail='Usuário ou senha incorretos',
         )
-    
-    access_token = create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+
+    access_token = create_access_token(data={'sub': user.username})
+    return {'access_token': access_token, 'token_type': 'bearer'}
+
 
 app.include_router(router)
