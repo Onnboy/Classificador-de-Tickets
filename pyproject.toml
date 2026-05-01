@@ -2,7 +2,7 @@
 name = "classificador-de-tickets"
 version = "0.1.0"
 description = ""
-requires-python = ">=3.13,<4.0"
+requires-python = ">=3.12,<4.0"
 
 authors = [
     {name = "Onnboy",email = "bomfimsantarosa@gmail.com"}
