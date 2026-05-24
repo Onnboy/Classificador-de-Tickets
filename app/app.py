@@ -48,8 +48,21 @@ def read_state():
     response_model=TicketResponse,
 )
 async def create_ticket(
-    ticket: TicketRequest, session: Session = Depends(get_session)
+    ticket: TicketRequest,
+    session: Session = Depends(get_session),
+    current_user_username: str = Depends(get_current_user),
 ):
+
+    user_db = session.exec(
+        select(User).where(User.username == current_user_username)
+    ).first()
+
+    if not user_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Usuario do token não encontrado no sistema!',
+        )
+
     try:
         prompt_ia = f'Titulo: {ticket.titulo}\nDescrição: {ticket.descricao}'
 
@@ -75,6 +88,7 @@ async def create_ticket(
             descricao=ticket.descricao,
             categoria=classificacao_ia.get('categoria'),
             prioridade=classificacao_ia.get('urgencia'),
+            usuario_id=user_db.id,
         )
 
         session.add(novo_ticket)
@@ -96,7 +110,9 @@ async def create_ticket(
             descricao=ticket.descricao,
             categoria='Erro',
             prioridade='N/A',
+            usuario_id=user_db.id,
         )
+
         session.add(novo_ticket)
         session.commit()
         session.refresh(novo_ticket)
