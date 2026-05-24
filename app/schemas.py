@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -8,6 +9,7 @@ from .models.ticket import Ticket
 class TicketRequest(BaseModel):
     titulo: str = Field(..., min_length=10)
     descricao: str
+    # usuario_id: int
 
 
 class IAClassificacao(BaseModel):
@@ -45,6 +47,11 @@ class TicketPublic(BaseModel):
     categoria: str
     prioridade: str
     criado_em: datetime
+    usuario_id: int
+    atribuir_a_id: Optional[int] = None
+
+    usuario: Optional[UserPublic] = None
+    tecnico: Optional[UserPublic] = None
 
     class Config:
         from_attributes = True
