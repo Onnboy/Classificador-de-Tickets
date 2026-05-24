@@ -34,6 +34,17 @@ def test_health_app():
 async def test_add_ticket_app_sucesso():
     SQLModel.metadata.create_all(engine_test)
     app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
+
+    with Session(engine_test) as session:
+        db_user = User(
+            id=1,
+            username='usuario_teste',
+            email='teste@teste.com',
+            hashed_password='fake',
+        )
+        session.add(db_user)
+        session.commit()
 
     targ = 'app.app.client.aio.models.generate_content'
     mock_response = AsyncMock()
@@ -63,6 +74,7 @@ async def test_add_ticket_app_sucesso():
         assert ticket is not None
         assert ticket.id == 1
         assert ticket.categoria == 'Dúvida'
+        assert ticket.usuario_id == 1
 
     app.dependency_overrides.clear()
     SQLModel.metadata.drop_all(engine_test)
@@ -72,6 +84,17 @@ async def test_add_ticket_app_sucesso():
 async def test_add_ticket_ai_falha():
     SQLModel.metadata.create_all(engine_test)
     app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
+
+    with Session(engine_test) as session:
+        db_user = User(
+            id=1,
+            username='usuario_teste',
+            email='teste@teste.com',
+            hashed_password='fake',
+        )
+        session.add(db_user)
+        session.commit()
 
     target = 'app.app.client.aio.models.generate_content'
     with patch(target, new_callable=AsyncMock) as mock_ai:
@@ -92,6 +115,7 @@ async def test_add_ticket_ai_falha():
         ticket = session.exec(select(Ticket)).first()
         assert ticket is not None
         assert ticket.categoria == 'Erro'
+        assert ticket.usuario_id == 1
 
     app.dependency_overrides.clear()
     SQLModel.metadata.drop_all(engine_test)
@@ -99,10 +123,14 @@ async def test_add_ticket_ai_falha():
 
 @pytest.mark.anyio
 async def test_add_ticket_app_error():
+    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
+
     client = TestClient(app)
     response = client.post('/v1/tickets/')
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.anyio
