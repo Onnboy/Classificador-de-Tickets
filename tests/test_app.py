@@ -24,7 +24,7 @@ def sbrescrever_get_session():
 
 def test_health_app():
     client = TestClient(app)
-    response = client.get('/health')
+    response = client.get('/health/')
 
     assert response.status_code == HTTPStatus.OK
     assert response.json() == {'estado': 'EM ATIVIDADE'}
@@ -34,13 +34,13 @@ def test_health_app():
 async def test_add_ticket_app_sucesso():
     SQLModel.metadata.create_all(engine_test)
     app.dependency_overrides[get_session] = sbrescrever_get_session
-    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
 
     with Session(engine_test) as session:
         db_user = User(
             id=1,
-            username='usuario_teste',
-            email='teste@teste.com',
+            username='usr_teste',
+            email='usr_teste@system.test',
             hashed_password='fake',
         )
         session.add(db_user)
@@ -84,13 +84,13 @@ async def test_add_ticket_app_sucesso():
 async def test_add_ticket_ai_falha():
     SQLModel.metadata.create_all(engine_test)
     app.dependency_overrides[get_session] = sbrescrever_get_session
-    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
 
     with Session(engine_test) as session:
         db_user = User(
             id=1,
-            username='usuario_teste',
-            email='teste@teste.com',
+            username='usr_teste',
+            email='usr_teste@system.test',
             hashed_password='fake',
         )
         session.add(db_user)
@@ -123,7 +123,7 @@ async def test_add_ticket_ai_falha():
 
 @pytest.mark.anyio
 async def test_add_ticket_app_error():
-    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
 
     client = TestClient(app)
     response = client.post('/v1/tickets/')
@@ -137,7 +137,17 @@ async def test_add_ticket_app_error():
 async def test_get_tickets_sucesso():
     SQLModel.metadata.create_all(engine_test)
     app.dependency_overrides[get_session] = sbrescrever_get_session
-    app.dependency_overrides[get_current_user] = lambda: 'usuario_teste'
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    with Session(engine_test) as session:
+        db_user = User(
+            id=1,
+            username='usr_teste',
+            email='usr_teste@system.test',
+            hashed_password='fake',
+        )
+        session.add(db_user)
+        session.commit()
 
     tp = ASGITransport(app=app)
     async with AsyncClient(transport=tp, base_url='http://test') as ac:
@@ -159,7 +169,7 @@ async def test_create_user_sucesso():
     async with AsyncClient(transport=tp, base_url='http://test') as ac:
         payload = {
             'username': 'testuser',
-            'email': 'test@example.com',
+            'email': 'testuser@system.com',
             'password': 'password123',
         }
         response = await ac.post('/v1/users/', json=payload)
@@ -167,9 +177,10 @@ async def test_create_user_sucesso():
     data = response.json()
     assert response.status_code == HTTPStatus.CREATED
     assert data['username'] == 'testuser'
-    assert data['email'] == 'test@example.com'
+    assert data['email'] == "hidden@system.test"
     assert 'id' in data
     assert 'password' not in data
+    assert 'hashed_password' not in data
 
     with Session(engine_test) as session:
         user = session.exec(
@@ -190,3 +201,31 @@ async def test_get_tickets_sem_token_deve_falhar():
         response = await ac.get('/v1/tickets/')
 
         assert response.status_code == HTTPStatus.UNAUTHORIZED
+
+
+@pytest.mark.anyio
+async def test_middleware_security_headers():
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        response = await ac.get('/health/')
+
+        assert response.headers.get('X-XSS-Protection') == '1; mode=block'
+        assert response.headers.get('X-Content-Type-Options') == 'nosniff'
+        assert response.headers.get('X-Frame-Options') == 'DENY'
+
+
+@pytest.mark.anyio
+async def test_list_tickets_usuario_nao_encontrado_deve_falhar():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usuario_fantasma'
+
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        response = await ac.get('/v1/tickets/')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.json()['detail'] == 'Usuário não encontrado'
+
+    app.dependency_overrides.clear()
+    SQLModel.metadata.drop_all(engine_test)
