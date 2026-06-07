@@ -20,13 +20,13 @@ async def test_login_sucesso(engine, override_get_session):
             '/v1/users/',
             json={
                 'username': 'authuser',
-                'email': 'auth@example.com',
+                'email': 'auth@system.com',
                 'password': 'secretpassword',
             },
         )
 
         login_data = {'username': 'authuser', 'password': 'secretpassword'}
-        response = await ac.post('/v1/auth/token', data=login_data)
+        response = await ac.post('/v1/auth/token/', data=login_data)
 
         assert response.status_code == HTTPStatus.OK
         data = response.json()
