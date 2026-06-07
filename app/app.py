@@ -1,7 +1,7 @@
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from google import genai
 from sqlalchemy.exc import IntegrityError
@@ -34,10 +34,28 @@ async def initialization(_: FastAPI):
 app = FastAPI(lifespan=initialization)
 router = APIRouter(prefix='/v1')
 
+
+@app.middleware('http')
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: https://fastapi.tiangolo.com;"
+    )
+    return response
+
+
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
-@app.get('/health')
+@app.get('/health/')
 def read_state():
     return {'estado': 'EM ATIVIDADE'}
 
@@ -127,9 +145,23 @@ async def create_ticket(
 @router.get('/tickets/', response_model=list[TicketResponse])
 async def list_tickets(
     session: Session = Depends(get_session),
-    _user: str = Depends(get_current_user),
+    current_username: str = Depends(get_current_user),
 ):
-    tickets = session.exec(select(Ticket)).all()
+
+    user_db = session.exec(
+        select(User).where(User.username == current_username)
+    ).first()
+
+    if not user_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Usuário não encontrado',
+        )
+
+    tickets = session.exec(
+        select(Ticket).where(Ticket.usuario_id == user_db.id)
+    ).all()
+
     return [
         {
             'mensagem': 'Ticket recuperado do histórico',
@@ -138,7 +170,14 @@ async def list_tickets(
                 'urgencia': t.prioridade,
                 'resumo': 'Recuperado do banco',
             },
-            'dados_originais': t,
+            'dados_originais': {
+                'id': t.id,
+                'titulo': t.titulo,
+                'descricao': t.descricao,
+                'categoria': t.categoria,
+                'prioridade': t.prioridade,
+                'criado_em': t.criado_em,
+            },
         }
         for t in tickets
     ]
@@ -159,7 +198,14 @@ async def create_user(
         session.add(novo_usuario)
         session.commit()
         session.refresh(novo_usuario)
-        return novo_usuario
+
+        return UserPublic(
+            id=novo_usuario.id,
+            username=novo_usuario.username,
+            email='hidden@system.test',
+            is_active=novo_usuario.is_active,
+            criado_em=novo_usuario.criado_em,
+        )
     except IntegrityError:
         session.rollback()
         raise HTTPException(
@@ -168,7 +214,7 @@ async def create_user(
         )
 
 
-@router.post('/auth/token')
+@router.post('/auth/token/')
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
