@@ -33,7 +33,7 @@ class UserCreate(BaseModel):
 class UserPublic(BaseModel):
     id: int
     username: str
-    email: EmailStr
+    email: str | None = None
     is_active: bool
 
     class Config:
