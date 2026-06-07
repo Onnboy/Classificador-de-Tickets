@@ -57,7 +57,8 @@ addopts = '-p no:warnings'
 lint = 'ruff check'
 pre_format = 'ruff check --fix'
 format = 'ruff format'
-run = 'fastapi dev app/app.py'
+# Mitigando os conflitos antes de rodar o servidor
+run = "sudo systemctl stop postgresql && docker compose down -v && docker compose up -d && fastapi dev app/app.py"
 pre_test = 'task lint'
 test = 'python -m pytest -s -x --cov=app --cov-report=term-missing --cov-report=html:htmlcov -vv'
 post_test = 'coverage html'
