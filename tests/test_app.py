@@ -134,6 +134,145 @@ async def test_add_ticket_app_error():
 
 
 @pytest.mark.anyio
+async def test_update_ticket_sucesso():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    with Session(engine_test) as session:
+        db_user = User(
+            id=1,
+            username='usr_teste',
+            email='usr_teste@system.test',
+            hashed_password='fake',
+        )
+        session.add(db_user)
+
+        db_ticket = Ticket(
+            id=1,
+            titulo='Titulo Antigo do Ticket',
+            descricao='Descricao antiga do ticket',
+            categoria='Dúvida',
+            prioridade='Baixa',
+            usuario_id=1,
+        )
+        session.add(db_ticket)
+        session.commit()
+
+    targ = 'app.app.client.aio.models.generate_content'
+    mock_response = AsyncMock()
+    mock_response.text = (
+        '{"categoria": "Bug","urgencia": "Alta", "resumo": "Atualizado"}'
+    )
+
+    with patch(targ, return_value=mock_response):
+        tp = ASGITransport(app=app)
+        async with AsyncClient(transport=tp, base_url='http://test') as ac:
+            payload = {
+                'titulo': 'Novo Titulo com mais de 10 caracteres',
+                'descricao': 'Nova descricao atualizada',
+            }
+            response = await ac.put('/v1/tickets/1', json=payload)
+
+    assert response.status_code == HTTPStatus.OK
+
+    with Session(engine_test) as session:
+        ticket = session.get(Ticket, 1)
+        assert ticket.titulo == payload['titulo']
+        assert ticket.categoria == 'Bug'
+
+    app.dependency_overrides.clear()
+    SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_update_ticket_sem_permissao():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usuario_b'
+
+    with Session(engine_test) as session:
+        dono = User(
+            id=1,
+            username='usr_teste',
+            email='dono@test.com',
+            hashed_password='fake',
+        )
+        fake_dono = User(
+            id=2,
+            username='usuario_b',
+            email='b@test.com',
+            hashed_password='fake',
+        )
+        session.add(dono)
+        session.add(fake_dono)
+
+        other_ticket = Ticket(
+            id=5,
+            titulo='Ticket do Dono',
+            descricao='...',
+            categoria='Dúvida',
+            prioridade='Baixa',
+            usuario_id=1
+        )
+        session.add(other_ticket)
+        session.commit()
+
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        payload = {
+            'titulo': 'Teste bypass',
+            'descricao': 'Teste de atualização ticket sem permissão',
+        }
+        response = await ac.put('/v1/tickets/5', json=payload)
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+
+    app.dependency_overrides.clear()
+    SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_update_ticket_nao_encontrado():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    with Session(engine_test) as session:
+        db_user = User(
+            id=1,
+            username='usr_teste',
+            email='usr@test.com',
+            hashed_password='fake',
+        )
+        session.add(db_user)
+        session.commit()
+
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        payload = {
+            'titulo': 'Titulo valido para ticket invalida',
+            'descricao': 'Descricao valida para ticket invalido',
+        }
+        response = await ac.put('/v1/tickets/999', json=payload)
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+    app.dependency_overrides.clear()
+    SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_update_ticket_sem_token():
+    tp = ASGITransport(app=app)
+    async with AsyncClient(transport=tp, base_url='http://test') as ac:
+        payload = {'titulo': 'Nao vai passar de qualquer forma'}
+        response = await ac.put('/v1/tickets/1', json=payload)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+
+
+@pytest.mark.anyio
 async def test_get_tickets_sucesso():
     SQLModel.metadata.create_all(engine_test)
     app.dependency_overrides[get_session] = sbrescrever_get_session
@@ -177,7 +316,7 @@ async def test_create_user_sucesso():
     data = response.json()
     assert response.status_code == HTTPStatus.CREATED
     assert data['username'] == 'testuser'
-    assert data['email'] == "hidden@system.test"
+    assert data['email'] == 'hidden@system.test'
     assert 'id' in data
     assert 'password' not in data
     assert 'hashed_password' not in data
