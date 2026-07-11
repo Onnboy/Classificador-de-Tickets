@@ -20,6 +20,7 @@ from app.models.user import User
 from app.schemas import (
     TicketRequest,
     TicketResponse,
+    TicketUpdate,
     UserCreate,
     UserPublic,
 )
@@ -140,6 +141,82 @@ async def create_ticket(
         'classe': classificacao_ia,
         'dados_originais': novo_ticket,
     }
+
+
+@router.put('/tickets/{id}', response_model=TicketUpdate)
+async def update_ticket(
+    id: int,
+    ticket: TicketUpdate,
+    session: Session = Depends(get_session),
+    current_user_username: str = Depends(get_current_user),
+):
+    user_db = session.exec(
+        select(User).where(User.username == current_user_username)
+    ).first()
+
+    if not user_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Usuario do token não encontrado no sistema!',
+        )
+
+    ticket_bd = session.get(Ticket, id)
+
+    if not ticket_bd:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Ticket não encontrado',
+        )
+
+    if ticket_bd.usuario_id != user_db.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Sem permissão para editar este ticket',
+        )
+
+    if ticket.titulo is not None:
+        ticket_bd.titulo = ticket.titulo
+
+    if ticket.descricao is not None:
+        ticket_bd.descricao = ticket.descricao
+
+    try:
+        prompt_ia = (
+            f'Titulo: {ticket_bd.titulo}\nDescrição: {ticket_bd.descricao}'
+        )
+
+        resposta_ia = await client.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt_ia,
+            config={
+                'response_mime_type': 'application/json',
+                'system_instruction': (
+                    'Voce é um classificador de tickets. '
+                    'Analise o ticket e retorne obrigatoriamente um JSON '
+                    "com os campos exatos: 'categoria', 'urgencia' e 'resumo'."
+                    'Categorias:  Dúvida, Bug, Critico. '
+                    'Urgência: Baixa, Média, Alta. '
+                    'Resumo: No máximo 15 palavras. '
+                ),
+            },
+        )
+        classificacao_ia = json.loads(resposta_ia.text)
+
+        ticket_bd.categoria = classificacao_ia.get('categoria')
+        ticket_bd.prioridade = classificacao_ia.get('urgencia')
+
+        print(f'IA reclassificou como: {classificacao_ia}')
+
+    except Exception as e:
+        print(f'Erro no IA durante o update: {e}')
+        ticket_bd.categoria = 'Erro'
+        ticket_bd.prioridade = 'N/A'
+
+    session.add(ticket_bd)
+    session.commit()
+    session.refresh(ticket_bd)
+
+    return ticket_bd
 
 
 @router.get('/tickets/', response_model=list[TicketResponse])

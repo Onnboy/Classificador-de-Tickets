@@ -9,7 +9,11 @@ from .models.ticket import Ticket
 class TicketRequest(BaseModel):
     titulo: str = Field(..., min_length=10)
     descricao: str
-    # usuario_id: int
+
+
+class TicketUpdate(BaseModel):
+    titulo: Optional[str] = Field(None, min_length=10)
+    descricao: Optional[str]
 
 
 class IAClassificacao(BaseModel):
