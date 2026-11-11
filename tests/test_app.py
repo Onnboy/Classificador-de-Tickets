@@ -213,7 +213,7 @@ async def test_update_ticket_sem_permissao():
             descricao='...',
             categoria='Dúvida',
             prioridade='Baixa',
-            usuario_id=1
+            usuario_id=1,
         )
         session.add(other_ticket)
         session.commit()
@@ -396,9 +396,7 @@ async def test_add_ticket_descricao_vazia_deve_falhar(descricao):
 
         with patch(targ, return_value=mock_response) as mock_ai:
             tp = ASGITransport(app=app)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 payload = {
                     'titulo': 'Titulo valido com mais de 10 caracteres',
                     'descricao': descricao,
@@ -451,9 +449,7 @@ async def test_update_ticket_descricao_vazia_deve_falhar():
 
         with patch(targ, return_value=mock_response) as mock_ai:
             tp = ASGITransport(app=app)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 payload = {'descricao': '   '}
                 response = await ac.put('/v1/tickets/1', json=payload)
 
@@ -515,9 +511,7 @@ async def test_update_so_titulo_de_ticket_antigo_com_descricao_vazia(payload):
             # raise_app_exceptions=False: erro interno vira resposta 500,
             # como em produção, em vez de exceção dentro do teste.
             tp = ASGITransport(app=app, raise_app_exceptions=False)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 response = await ac.put('/v1/tickets/1', json=payload)
 
         assert response.status_code == HTTPStatus.OK
@@ -527,6 +521,124 @@ async def test_update_so_titulo_de_ticket_antigo_com_descricao_vazia(payload):
             ticket = session.get(Ticket, 1)
             assert ticket.titulo == payload['titulo']
             assert not ticket.descricao
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+def _semear_usuario_e_ticket_classificado():
+    with Session(engine_test) as session:
+        db_user = User(
+            id=1,
+            username='usr_teste',
+            email='usr_teste@system.test',
+            hashed_password='fake',
+        )
+        session.add(db_user)
+
+        db_ticket = Ticket(
+            id=1,
+            titulo='Titulo Antigo do Ticket',
+            descricao='Descricao antiga do ticket',
+            categoria='Dúvida',
+            prioridade='Baixa',
+            usuario_id=1,
+        )
+        session.add(db_ticket)
+        session.commit()
+
+
+async def _put_ticket_com_ia_simulada(payload):
+    targ = 'app.app.client.aio.models.generate_content'
+    mock_response = AsyncMock()
+    mock_response.text = (
+        '{"categoria": "Bug","urgencia": "Alta", "resumo": "Atualizado"}'
+    )
+
+    with patch(targ, return_value=mock_response) as mock_ai:
+        tp = ASGITransport(app=app)
+        async with AsyncClient(transport=tp, base_url='http://test') as ac:
+            response = await ac.put('/v1/tickets/1', json=payload)
+
+    return response, mock_ai
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'payload',
+    [
+        {},
+        {'titulo': 'Titulo Antigo do Ticket'},
+        {'descricao': 'Descricao antiga do ticket'},
+        {
+            'titulo': 'Titulo Antigo do Ticket',
+            'descricao': 'Descricao antiga do ticket',
+        },
+    ],
+    ids=['corpo_vazio', 'titulo_igual', 'descricao_igual', 'ambos_iguais'],
+)
+async def test_update_sem_mudar_titulo_nem_descricao_nao_reclassifica(
+    payload,
+):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        _semear_usuario_e_ticket_classificado()
+
+        response, mock_ai = await _put_ticket_com_ia_simulada(payload)
+
+        assert response.status_code == HTTPStatus.OK
+        mock_ai.assert_not_called()
+
+        with Session(engine_test) as session:
+            ticket = session.get(Ticket, 1)
+            assert ticket.titulo == 'Titulo Antigo do Ticket'
+            assert ticket.descricao == 'Descricao antiga do ticket'
+            assert ticket.categoria == 'Dúvida'
+            assert ticket.prioridade == 'Baixa'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'payload',
+    [
+        {'titulo': 'Novo titulo sem mexer na descricao'},
+        {'descricao': 'Nova descricao sem mexer no titulo'},
+        {
+            'titulo': 'Novo titulo sem mexer na descricao',
+            'descricao': 'Descricao antiga do ticket',
+        },
+    ],
+    ids=['so_titulo', 'so_descricao', 'titulo_novo_e_descricao_igual'],
+)
+async def test_update_mudando_titulo_ou_descricao_reclassifica(payload):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        _semear_usuario_e_ticket_classificado()
+
+        response, mock_ai = await _put_ticket_com_ia_simulada(payload)
+
+        assert response.status_code == HTTPStatus.OK
+        mock_ai.assert_awaited_once()
+
+        with Session(engine_test) as session:
+            ticket = session.get(Ticket, 1)
+            assert ticket.titulo == payload.get(
+                'titulo', 'Titulo Antigo do Ticket'
+            )
+            assert ticket.descricao == payload.get(
+                'descricao', 'Descricao antiga do ticket'
+            )
+            assert ticket.categoria == 'Bug'
+            assert ticket.prioridade == 'Alta'
     finally:
         app.dependency_overrides.clear()
         SQLModel.metadata.drop_all(engine_test)
