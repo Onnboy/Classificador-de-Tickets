@@ -213,7 +213,7 @@ async def test_update_ticket_sem_permissao():
             descricao='...',
             categoria='Dúvida',
             prioridade='Baixa',
-            usuario_id=1
+            usuario_id=1,
         )
         session.add(other_ticket)
         session.commit()
@@ -396,9 +396,7 @@ async def test_add_ticket_descricao_vazia_deve_falhar(descricao):
 
         with patch(targ, return_value=mock_response) as mock_ai:
             tp = ASGITransport(app=app)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 payload = {
                     'titulo': 'Titulo valido com mais de 10 caracteres',
                     'descricao': descricao,
@@ -451,9 +449,7 @@ async def test_update_ticket_descricao_vazia_deve_falhar():
 
         with patch(targ, return_value=mock_response) as mock_ai:
             tp = ASGITransport(app=app)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 payload = {'descricao': '   '}
                 response = await ac.put('/v1/tickets/1', json=payload)
 
@@ -515,9 +511,7 @@ async def test_update_so_titulo_de_ticket_antigo_com_descricao_vazia(payload):
             # raise_app_exceptions=False: erro interno vira resposta 500,
             # como em produção, em vez de exceção dentro do teste.
             tp = ASGITransport(app=app, raise_app_exceptions=False)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 response = await ac.put('/v1/tickets/1', json=payload)
 
         assert response.status_code == HTTPStatus.OK
