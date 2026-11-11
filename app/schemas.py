@@ -1,19 +1,30 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from .models.ticket import Ticket
+
+
+def _descricao_nao_vazia(valor: Optional[str]) -> Optional[str]:
+    # None significa "campo não enviado" na atualização e continua válido.
+    if valor is not None and not valor.strip():
+        raise ValueError('A descrição não pode ser vazia')
+    return valor
 
 
 class TicketRequest(BaseModel):
     titulo: str = Field(..., min_length=10)
     descricao: str
 
+    _validar_descricao = field_validator('descricao')(_descricao_nao_vazia)
+
 
 class TicketUpdate(BaseModel):
     titulo: Optional[str] = Field(None, min_length=10)
     descricao: Optional[str]
+
+    _validar_descricao = field_validator('descricao')(_descricao_nao_vazia)
 
 
 class IAClassificacao(BaseModel):
