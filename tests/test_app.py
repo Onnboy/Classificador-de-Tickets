@@ -368,3 +368,165 @@ async def test_list_tickets_usuario_nao_encontrado_deve_falhar():
 
     app.dependency_overrides.clear()
     SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('descricao', ['', '   ', '\n\t'])
+async def test_add_ticket_descricao_vazia_deve_falhar(descricao):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        with Session(engine_test) as session:
+            db_user = User(
+                id=1,
+                username='usr_teste',
+                email='usr_teste@system.test',
+                hashed_password='fake',
+            )
+            session.add(db_user)
+            session.commit()
+
+        targ = 'app.app.client.aio.models.generate_content'
+        mock_response = AsyncMock()
+        mock_response.text = (
+            '{"categoria": "Dúvida","urgencia": "Baixa", "resumo": "Teste"}'
+        )
+
+        with patch(targ, return_value=mock_response) as mock_ai:
+            tp = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=tp, base_url='http://test'
+            ) as ac:
+                payload = {
+                    'titulo': 'Titulo valido com mais de 10 caracteres',
+                    'descricao': descricao,
+                }
+                response = await ac.post('/v1/tickets/', json=payload)
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert response.json()['detail'][0]['loc'] == ['body', 'descricao']
+        mock_ai.assert_not_called()
+
+        with Session(engine_test) as session:
+            assert session.exec(select(Ticket)).first() is None
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_update_ticket_descricao_vazia_deve_falhar():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        with Session(engine_test) as session:
+            db_user = User(
+                id=1,
+                username='usr_teste',
+                email='usr_teste@system.test',
+                hashed_password='fake',
+            )
+            session.add(db_user)
+
+            db_ticket = Ticket(
+                id=1,
+                titulo='Titulo Antigo do Ticket',
+                descricao='Descricao antiga do ticket',
+                categoria='Dúvida',
+                prioridade='Baixa',
+                usuario_id=1,
+            )
+            session.add(db_ticket)
+            session.commit()
+
+        targ = 'app.app.client.aio.models.generate_content'
+        mock_response = AsyncMock()
+        mock_response.text = (
+            '{"categoria": "Bug","urgencia": "Alta", "resumo": "Atualizado"}'
+        )
+
+        with patch(targ, return_value=mock_response) as mock_ai:
+            tp = ASGITransport(app=app)
+            async with AsyncClient(
+                transport=tp, base_url='http://test'
+            ) as ac:
+                payload = {'descricao': '   '}
+                response = await ac.put('/v1/tickets/1', json=payload)
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert response.json()['detail'][0]['loc'] == ['body', 'descricao']
+        mock_ai.assert_not_called()
+
+        with Session(engine_test) as session:
+            ticket = session.get(Ticket, 1)
+            assert ticket.descricao == 'Descricao antiga do ticket'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'payload',
+    [
+        {'titulo': 'Novo titulo para ticket antigo'},
+        {'titulo': 'Novo titulo para ticket antigo', 'descricao': None},
+    ],
+    ids=['sem_campo_descricao', 'descricao_null'],
+)
+async def test_update_so_titulo_de_ticket_antigo_com_descricao_vazia(payload):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        with Session(engine_test) as session:
+            db_user = User(
+                id=1,
+                username='usr_teste',
+                email='usr_teste@system.test',
+                hashed_password='fake',
+            )
+            session.add(db_user)
+
+            # Ticket gravado antes da validação existir: descrição vazia.
+            db_ticket = Ticket(
+                id=1,
+                titulo='Titulo Antigo do Ticket',
+                descricao='',
+                categoria='Dúvida',
+                prioridade='Baixa',
+                usuario_id=1,
+            )
+            session.add(db_ticket)
+            session.commit()
+
+        targ = 'app.app.client.aio.models.generate_content'
+        mock_response = AsyncMock()
+        mock_response.text = (
+            '{"categoria": "Bug","urgencia": "Alta", "resumo": "Atualizado"}'
+        )
+
+        with patch(targ, return_value=mock_response):
+            # raise_app_exceptions=False: erro interno vira resposta 500,
+            # como em produção, em vez de exceção dentro do teste.
+            tp = ASGITransport(app=app, raise_app_exceptions=False)
+            async with AsyncClient(
+                transport=tp, base_url='http://test'
+            ) as ac:
+                response = await ac.put('/v1/tickets/1', json=payload)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()['titulo'] == payload['titulo']
+
+        with Session(engine_test) as session:
+            ticket = session.get(Ticket, 1)
+            assert ticket.titulo == payload['titulo']
+            assert not ticket.descricao
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
