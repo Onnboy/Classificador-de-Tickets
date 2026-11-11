@@ -467,3 +467,66 @@ async def test_update_ticket_descricao_vazia_deve_falhar():
     finally:
         app.dependency_overrides.clear()
         SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'payload',
+    [
+        {'titulo': 'Novo titulo para ticket antigo'},
+        {'titulo': 'Novo titulo para ticket antigo', 'descricao': None},
+    ],
+    ids=['sem_campo_descricao', 'descricao_null'],
+)
+async def test_update_so_titulo_de_ticket_antigo_com_descricao_vazia(payload):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        with Session(engine_test) as session:
+            db_user = User(
+                id=1,
+                username='usr_teste',
+                email='usr_teste@system.test',
+                hashed_password='fake',
+            )
+            session.add(db_user)
+
+            # Ticket gravado antes da validação existir: descrição vazia.
+            db_ticket = Ticket(
+                id=1,
+                titulo='Titulo Antigo do Ticket',
+                descricao='',
+                categoria='Dúvida',
+                prioridade='Baixa',
+                usuario_id=1,
+            )
+            session.add(db_ticket)
+            session.commit()
+
+        targ = 'app.app.client.aio.models.generate_content'
+        mock_response = AsyncMock()
+        mock_response.text = (
+            '{"categoria": "Bug","urgencia": "Alta", "resumo": "Atualizado"}'
+        )
+
+        with patch(targ, return_value=mock_response):
+            # raise_app_exceptions=False: erro interno vira resposta 500,
+            # como em produção, em vez de exceção dentro do teste.
+            tp = ASGITransport(app=app, raise_app_exceptions=False)
+            async with AsyncClient(
+                transport=tp, base_url='http://test'
+            ) as ac:
+                response = await ac.put('/v1/tickets/1', json=payload)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.json()['titulo'] == payload['titulo']
+
+        with Session(engine_test) as session:
+            ticket = session.get(Ticket, 1)
+            assert ticket.titulo == payload['titulo']
+            assert not ticket.descricao
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
