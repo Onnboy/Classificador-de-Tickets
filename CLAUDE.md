@@ -27,6 +27,7 @@ Lint e formatação: `.venv/bin/ruff check` e `.venv/bin/ruff format`.
 - Não rode `task test` nem `pytest` sem as variáveis acima: o `.env` real seria carregado, e um teste sem mock chamaria a API paga do Gemini.
 - Todo teste que passe por uma rota que classifica ticket precisa de mock em `client.aio.models.generate_content`.
 - Um schema usado como `response_model` não deve carregar validadores de entrada: dados antigos do banco que não passam na regra viram erro 500. Use um modelo de resposta separado.
+- Com o sandbox ativo, rode `git push`, `git fetch`, `git pull` e `gh` como comandos simples, um por chamada, sem encadear com `&&` nem `cd`. Encadeados, eles rodam dentro do sandbox, onde o `gh` não alcança o keyring e acusa token inválido. Nesse caso o token está válido: não rode `gh auth login`.
 
 ## Convenções
 
