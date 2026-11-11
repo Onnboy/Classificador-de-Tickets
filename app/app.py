@@ -175,43 +175,56 @@ async def update_ticket(
             detail='Sem permissão para editar este ticket',
         )
 
-    if ticket.titulo is not None:
+    # A classificação só é refeita quando título ou descrição mudam de
+    # fato: os dois entram no prompt, e cada chamada ao Gemini é paga e
+    # sobrescreve categoria e prioridade.
+    titulo_mudou = (
+        ticket.titulo is not None and ticket.titulo != ticket_bd.titulo
+    )
+    descricao_mudou = (
+        ticket.descricao is not None
+        and ticket.descricao != ticket_bd.descricao
+    )
+
+    if titulo_mudou:
         ticket_bd.titulo = ticket.titulo
 
-    if ticket.descricao is not None:
+    if descricao_mudou:
         ticket_bd.descricao = ticket.descricao
 
-    try:
-        prompt_ia = (
-            f'Titulo: {ticket_bd.titulo}\nDescrição: {ticket_bd.descricao}'
-        )
+    if titulo_mudou or descricao_mudou:
+        try:
+            prompt_ia = (
+                f'Titulo: {ticket_bd.titulo}\nDescrição: {ticket_bd.descricao}'
+            )
 
-        resposta_ia = await client.aio.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt_ia,
-            config={
-                'response_mime_type': 'application/json',
-                'system_instruction': (
-                    'Voce é um classificador de tickets. '
-                    'Analise o ticket e retorne obrigatoriamente um JSON '
-                    "com os campos exatos: 'categoria', 'urgencia' e 'resumo'."
-                    'Categorias:  Dúvida, Bug, Critico. '
-                    'Urgência: Baixa, Média, Alta. '
-                    'Resumo: No máximo 15 palavras. '
-                ),
-            },
-        )
-        classificacao_ia = json.loads(resposta_ia.text)
+            resposta_ia = await client.aio.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt_ia,
+                config={
+                    'response_mime_type': 'application/json',
+                    'system_instruction': (
+                        'Voce é um classificador de tickets. '
+                        'Analise o ticket e retorne obrigatoriamente um JSON '
+                        "com os campos exatos: 'categoria', 'urgencia' "
+                        "e 'resumo'."
+                        'Categorias:  Dúvida, Bug, Critico. '
+                        'Urgência: Baixa, Média, Alta. '
+                        'Resumo: No máximo 15 palavras. '
+                    ),
+                },
+            )
+            classificacao_ia = json.loads(resposta_ia.text)
 
-        ticket_bd.categoria = classificacao_ia.get('categoria')
-        ticket_bd.prioridade = classificacao_ia.get('urgencia')
+            ticket_bd.categoria = classificacao_ia.get('categoria')
+            ticket_bd.prioridade = classificacao_ia.get('urgencia')
 
-        print(f'IA reclassificou como: {classificacao_ia}')
+            print(f'IA reclassificou como: {classificacao_ia}')
 
-    except Exception as e:
-        print(f'Erro no IA durante o update: {e}')
-        ticket_bd.categoria = 'Erro'
-        ticket_bd.prioridade = 'N/A'
+        except Exception as e:
+            print(f'Erro no IA durante o update: {e}')
+            ticket_bd.categoria = 'Erro'
+            ticket_bd.prioridade = 'N/A'
 
     session.add(ticket_bd)
     session.commit()
