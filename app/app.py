@@ -21,6 +21,7 @@ from app.schemas import (
     TicketRequest,
     TicketResponse,
     TicketUpdate,
+    TicketUpdateResponse,
     UserCreate,
     UserPublic,
 )
@@ -143,7 +144,7 @@ async def create_ticket(
     }
 
 
-@router.put('/tickets/{id}', response_model=TicketUpdate)
+@router.put('/tickets/{id}', response_model=TicketUpdateResponse)
 async def update_ticket(
     id: int,
     ticket: TicketUpdate,

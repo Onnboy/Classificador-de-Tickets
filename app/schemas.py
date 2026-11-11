@@ -22,9 +22,16 @@ class TicketRequest(BaseModel):
 
 class TicketUpdate(BaseModel):
     titulo: Optional[str] = Field(None, min_length=10)
-    descricao: Optional[str]
+    descricao: Optional[str] = None
 
     _validar_descricao = field_validator('descricao')(_descricao_nao_vazia)
+
+
+class TicketUpdateResponse(BaseModel):
+    # Saída do PUT: sem as regras de entrada, para que tickets gravados
+    # antes da validação continuem podendo ser devolvidos.
+    titulo: str
+    descricao: str
 
 
 class IAClassificacao(BaseModel):
