@@ -1,7 +1,13 @@
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from .models.ticket import Ticket
 
@@ -13,15 +19,22 @@ def _descricao_nao_vazia(valor: Optional[str]) -> Optional[str]:
     return valor
 
 
+# O tamanho mínimo vale para o título já sem os espaços das pontas. Com
+# um min_length simples, dez espaços passavam na validação.
+Titulo = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=10)
+]
+
+
 class TicketRequest(BaseModel):
-    titulo: str = Field(..., min_length=10)
+    titulo: Titulo
     descricao: str
 
     _validar_descricao = field_validator('descricao')(_descricao_nao_vazia)
 
 
 class TicketUpdate(BaseModel):
-    titulo: Optional[str] = Field(None, min_length=10)
+    titulo: Optional[Titulo] = None
     descricao: Optional[str] = None
 
     _validar_descricao = field_validator('descricao')(_descricao_nao_vazia)
