@@ -574,8 +574,15 @@ async def _put_ticket_com_ia_simulada(payload):
             'titulo': 'Titulo Antigo do Ticket',
             'descricao': 'Descricao antiga do ticket',
         },
+        {'titulo': '  Titulo Antigo do Ticket \n'},
     ],
-    ids=['corpo_vazio', 'titulo_igual', 'descricao_igual', 'ambos_iguais'],
+    ids=[
+        'corpo_vazio',
+        'titulo_igual',
+        'descricao_igual',
+        'ambos_iguais',
+        'titulo_igual_com_espacos_nas_pontas',
+    ],
 )
 async def test_update_sem_mudar_titulo_nem_descricao_nao_reclassifica(
     payload,
@@ -639,6 +646,99 @@ async def test_update_mudando_titulo_ou_descricao_reclassifica(payload):
             )
             assert ticket.categoria == 'Bug'
             assert ticket.prioridade == 'Alta'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+# Todos têm 10 caracteres ou mais contando os espaços, mas menos de 10
+# de conteúdo: o tamanho mínimo vale para o título já sem as pontas.
+TITULOS_SEM_CONTEUDO_MINIMO = [
+    ' ' * 12,
+    '\n\t' * 6,
+    'a' + ' ' * 9,
+    ' ' * 9 + 'curto',
+]
+IDS_TITULOS_SEM_CONTEUDO_MINIMO = [
+    'espacos',
+    'quebras_e_tabs',
+    'uma_letra_e_espacos',
+    'curto_com_espacos_antes',
+]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'titulo', TITULOS_SEM_CONTEUDO_MINIMO, ids=IDS_TITULOS_SEM_CONTEUDO_MINIMO
+)
+async def test_add_ticket_titulo_sem_conteudo_minimo_deve_falhar(titulo):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        with Session(engine_test) as session:
+            db_user = User(
+                id=1,
+                username='usr_teste',
+                email='usr_teste@system.test',
+                hashed_password='fake',
+            )
+            session.add(db_user)
+            session.commit()
+
+        targ = 'app.app.client.aio.models.generate_content'
+        mock_response = AsyncMock()
+        mock_response.text = (
+            '{"categoria": "Dúvida","urgencia": "Baixa", "resumo": "Teste"}'
+        )
+
+        with patch(targ, return_value=mock_response) as mock_ai:
+            tp = ASGITransport(app=app)
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
+                payload = {
+                    'titulo': titulo,
+                    'descricao': 'Descricao valida do ticket',
+                }
+                response = await ac.post('/v1/tickets/', json=payload)
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert response.json()['detail'][0]['loc'] == ['body', 'titulo']
+        mock_ai.assert_not_called()
+
+        with Session(engine_test) as session:
+            assert session.exec(select(Ticket)).first() is None
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'titulo', TITULOS_SEM_CONTEUDO_MINIMO, ids=IDS_TITULOS_SEM_CONTEUDO_MINIMO
+)
+async def test_update_ticket_titulo_sem_conteudo_minimo_deve_falhar(titulo):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        _semear_usuario_e_ticket_classificado()
+
+        response, mock_ai = await _put_ticket_com_ia_simulada({
+            'titulo': titulo
+        })
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert response.json()['detail'][0]['loc'] == ['body', 'titulo']
+        mock_ai.assert_not_called()
+
+        with Session(engine_test) as session:
+            ticket = session.get(Ticket, 1)
+            assert ticket.titulo == 'Titulo Antigo do Ticket'
+            assert ticket.descricao == 'Descricao antiga do ticket'
+            assert ticket.categoria == 'Dúvida'
+            assert ticket.prioridade == 'Baixa'
     finally:
         app.dependency_overrides.clear()
         SQLModel.metadata.drop_all(engine_test)
