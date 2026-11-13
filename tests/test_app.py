@@ -742,3 +742,147 @@ async def test_update_ticket_titulo_sem_conteudo_minimo_deve_falhar(titulo):
     finally:
         app.dependency_overrides.clear()
         SQLModel.metadata.drop_all(engine_test)
+
+
+ALVO_IA = 'app.app.client.aio.models.generate_content'
+
+
+def _semear_usuario(is_active=True, senha='fake'):
+    with Session(engine_test) as session:
+        session.add(
+            User(
+                id=1,
+                username='usr_teste',
+                email='usr_teste@system.test',
+                hashed_password=senha,
+                is_active=is_active,
+            )
+        )
+        session.commit()
+
+
+async def _post_ticket_com_ia_simulada(texto_ia, headers=None):
+    mock_response = AsyncMock()
+    mock_response.text = texto_ia
+
+    with patch(ALVO_IA, return_value=mock_response) as mock_ai:
+        # raise_app_exceptions=False: erro interno vira resposta 500,
+        # como em produção, em vez de exceção dentro do teste.
+        tp = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=tp, base_url='http://test') as ac:
+            payload = {
+                'titulo': 'Titulo valido com mais de 10 caracteres',
+                'descricao': 'Descricao valida',
+            }
+            response = await ac.post(
+                '/v1/tickets/', json=payload, headers=headers
+            )
+
+    return response, mock_ai
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    'texto_ia',
+    [
+        '{"foo": "bar"}',
+        '{"categoria": "Bug", "resumo": "sem urgencia"}',
+        '{"categoria": "Qualquer", "urgencia": "Urgentíssima", "resumo": "x"}',
+        '{"categoria": null, "urgencia": null, "resumo": null}',
+        'isto não é json',
+        '[]',
+    ],
+    ids=[
+        'sem_campos',
+        'sem_urgencia',
+        'valores_fora_da_lista',
+        'campos_nulos',
+        'nao_e_json',
+        'json_que_nao_e_objeto',
+    ],
+)
+async def test_add_ticket_resposta_invalida_da_ia_salva_como_erro(texto_ia):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        _semear_usuario()
+
+        response, _ = await _post_ticket_com_ia_simulada(texto_ia)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert response.json()['classe'] == {
+            'categoria': 'Não classificado',
+            'urgencia': 'N/A',
+            'resumo': 'Erro ao processar com IA',
+        }
+
+        with Session(engine_test) as session:
+            tickets = session.exec(select(Ticket)).all()
+            assert len(tickets) == 1
+            assert tickets[0].categoria == 'Erro'
+            assert tickets[0].prioridade == 'N/A'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_add_ticket_normaliza_variacoes_da_resposta_da_ia():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        _semear_usuario()
+
+        response, _ = await _post_ticket_com_ia_simulada(
+            '{"categoria": "crítico", "urgencia": " MEDIA ", "resumo": "x"}'
+        )
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert response.json()['classe']['categoria'] == 'Critico'
+        assert response.json()['classe']['urgencia'] == 'Média'
+
+        with Session(engine_test) as session:
+            ticket = session.exec(select(Ticket)).one()
+            assert ticket.categoria == 'Critico'
+            assert ticket.prioridade == 'Média'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_update_ticket_resposta_invalida_da_ia_salva_como_erro():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        _semear_usuario_e_ticket_classificado()
+
+        mock_response = AsyncMock()
+        mock_response.text = '{"foo": "bar"}'
+
+        with patch(ALVO_IA, return_value=mock_response):
+            tp = ASGITransport(app=app, raise_app_exceptions=False)
+            async with AsyncClient(
+                transport=tp, base_url='http://test'
+            ) as ac:
+                response = await ac.put(
+                    '/v1/tickets/1',
+                    json={'titulo': 'Novo titulo que muda o ticket'},
+                )
+
+        assert response.status_code == HTTPStatus.OK
+
+        with Session(engine_test) as session:
+            ticket = session.get(Ticket, 1)
+            assert ticket.titulo == 'Novo titulo que muda o ticket'
+            assert ticket.categoria == 'Erro'
+            assert ticket.prioridade == 'N/A'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
