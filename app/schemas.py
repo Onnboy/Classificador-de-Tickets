@@ -1,5 +1,6 @@
+import unicodedata
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -51,6 +52,45 @@ class IAClassificacao(BaseModel):
     categoria: str
     urgencia: str
     resumo: str
+
+
+CATEGORIAS_IA = ('Dúvida', 'Bug', 'Critico')
+URGENCIAS_IA = ('Baixa', 'Média', 'Alta')
+
+
+def _sem_acento_nem_caixa(texto: str) -> str:
+    decomposto = unicodedata.normalize('NFKD', texto.strip().casefold())
+    return ''.join(c for c in decomposto if not unicodedata.combining(c))
+
+
+def _valor_canonico(valor: object, permitidos: tuple[str, ...]) -> object:
+    # Aceita variações de caixa, acento e espaços ('crítico', ' MEDIA ')
+    # e devolve a grafia da lista. O que não bater segue como veio e é
+    # recusado pelo Literal do campo.
+    if isinstance(valor, str):
+        chave = _sem_acento_nem_caixa(valor)
+        for permitido in permitidos:
+            if _sem_acento_nem_caixa(permitido) == chave:
+                return permitido
+    return valor
+
+
+class RespostaIA(BaseModel):
+    # Entrada: o que a IA devolveu. Não usar como response_model; a
+    # saída das rotas é IAClassificacao, sem estas regras.
+    categoria: Literal['Dúvida', 'Bug', 'Critico']
+    urgencia: Literal['Baixa', 'Média', 'Alta']
+    resumo: str
+
+    @field_validator('categoria', mode='before')
+    @classmethod
+    def _categoria_canonica(cls, valor):
+        return _valor_canonico(valor, CATEGORIAS_IA)
+
+    @field_validator('urgencia', mode='before')
+    @classmethod
+    def _urgencia_canonica(cls, valor):
+        return _valor_canonico(valor, URGENCIAS_IA)
 
 
 class TicketResponse(BaseModel):

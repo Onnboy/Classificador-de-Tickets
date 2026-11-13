@@ -1,4 +1,3 @@
-import json
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
@@ -18,6 +17,7 @@ from app.database import criar_db_table, get_session
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas import (
+    RespostaIA,
     TicketRequest,
     TicketResponse,
     TicketUpdate,
@@ -56,6 +56,34 @@ async def add_security_headers(request: Request, call_next):
 
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
+INSTRUCAO_IA = (
+    'Voce é um classificador de tickets. '
+    'Analise o ticket e retorne obrigatoriamente um JSON '
+    "com os campos exatos: 'categoria', 'urgencia' e 'resumo'."
+    'Categorias:  Dúvida, Bug, Critico. '
+    'Urgência: Baixa, Média, Alta. '
+    'Resumo: No máximo 15 palavras. '
+)
+
+
+async def classificar_com_ia(titulo: str, descricao: str) -> RespostaIA | None:
+    # Devolve None quando a chamada falha ou a resposta não tem o formato
+    # esperado. Quem chama grava o ticket fora deste try: assim um erro
+    # da IA nunca deixa a sessão do banco em estado inválido.
+    try:
+        resposta_ia = await client.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f'Titulo: {titulo}\nDescrição: {descricao}',
+            config={
+                'response_mime_type': 'application/json',
+                'system_instruction': INSTRUCAO_IA,
+            },
+        )
+        return RespostaIA.model_validate_json(resposta_ia.text)
+    except Exception as e:
+        print(f'Erro no IA: {e}')
+        return None
+
 
 @app.get('/health/')
 def read_state():
@@ -83,59 +111,33 @@ async def create_ticket(
             detail='Usuario do token não encontrado no sistema!',
         )
 
-    try:
-        prompt_ia = f'Titulo: {ticket.titulo}\nDescrição: {ticket.descricao}'
+    classificacao = await classificar_com_ia(ticket.titulo, ticket.descricao)
 
-        resposta_ia = await client.aio.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt_ia,
-            config={
-                'response_mime_type': 'application/json',
-                'system_instruction': (
-                    'Voce é um classificador de tickets. '
-                    'Analise o ticket e retorne obrigatoriamente um JSON '
-                    "com os campos exatos: 'categoria', 'urgencia' e 'resumo'."
-                    'Categorias:  Dúvida, Bug, Critico. '
-                    'Urgência: Baixa, Média, Alta. '
-                    'Resumo: No máximo 15 palavras. '
-                ),
-            },
-        )
-        classificacao_ia = json.loads(resposta_ia.text)
-
-        novo_ticket = Ticket(
-            titulo=ticket.titulo,
-            descricao=ticket.descricao,
-            categoria=classificacao_ia.get('categoria'),
-            prioridade=classificacao_ia.get('urgencia'),
-            usuario_id=user_db.id,
-        )
-
-        session.add(novo_ticket)
-        session.commit()
-        session.refresh(novo_ticket)
-
+    if classificacao:
+        classificacao_ia = classificacao.model_dump()
+        categoria = classificacao.categoria
+        prioridade = classificacao.urgencia
         print(f'IA classificou como: {classificacao_ia}')
-
-    except Exception as e:
-        print(f'Erro no IA: {e}')
+    else:
         classificacao_ia = {
             'categoria': 'Não classificado',
             'urgencia': 'N/A',
             'resumo': 'Erro ao processar com IA',
         }
+        categoria = 'Erro'
+        prioridade = 'N/A'
 
-        novo_ticket = Ticket(
-            titulo=ticket.titulo,
-            descricao=ticket.descricao,
-            categoria='Erro',
-            prioridade='N/A',
-            usuario_id=user_db.id,
-        )
+    novo_ticket = Ticket(
+        titulo=ticket.titulo,
+        descricao=ticket.descricao,
+        categoria=categoria,
+        prioridade=prioridade,
+        usuario_id=user_db.id,
+    )
 
-        session.add(novo_ticket)
-        session.commit()
-        session.refresh(novo_ticket)
+    session.add(novo_ticket)
+    session.commit()
+    session.refresh(novo_ticket)
 
     return {
         'mensagem': 'Ticket processado',
@@ -193,36 +195,15 @@ async def update_ticket(
         ticket_bd.descricao = ticket.descricao
 
     if titulo_mudou or descricao_mudou:
-        try:
-            prompt_ia = (
-                f'Titulo: {ticket_bd.titulo}\nDescrição: {ticket_bd.descricao}'
-            )
+        classificacao = await classificar_com_ia(
+            ticket_bd.titulo, ticket_bd.descricao
+        )
 
-            resposta_ia = await client.aio.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt_ia,
-                config={
-                    'response_mime_type': 'application/json',
-                    'system_instruction': (
-                        'Voce é um classificador de tickets. '
-                        'Analise o ticket e retorne obrigatoriamente um JSON '
-                        "com os campos exatos: 'categoria', 'urgencia' "
-                        "e 'resumo'."
-                        'Categorias:  Dúvida, Bug, Critico. '
-                        'Urgência: Baixa, Média, Alta. '
-                        'Resumo: No máximo 15 palavras. '
-                    ),
-                },
-            )
-            classificacao_ia = json.loads(resposta_ia.text)
-
-            ticket_bd.categoria = classificacao_ia.get('categoria')
-            ticket_bd.prioridade = classificacao_ia.get('urgencia')
-
-            print(f'IA reclassificou como: {classificacao_ia}')
-
-        except Exception as e:
-            print(f'Erro no IA durante o update: {e}')
+        if classificacao:
+            ticket_bd.categoria = classificacao.categoria
+            ticket_bd.prioridade = classificacao.urgencia
+            print(f'IA reclassificou como: {classificacao.model_dump()}')
+        else:
             ticket_bd.categoria = 'Erro'
             ticket_bd.prioridade = 'N/A'
 
