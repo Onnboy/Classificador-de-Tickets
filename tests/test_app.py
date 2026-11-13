@@ -7,7 +7,7 @@ from httpx import ASGITransport, AsyncClient, Response
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.app import app
-from app.core.security import get_current_user
+from app.core.security import get_current_user, hash_password
 from app.database import get_session
 from app.models.ticket import Ticket
 from app.models.user import User
@@ -883,6 +883,134 @@ async def test_update_ticket_resposta_invalida_da_ia_salva_como_erro():
             assert ticket.titulo == 'Novo titulo que muda o ticket'
             assert ticket.categoria == 'Erro'
             assert ticket.prioridade == 'N/A'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ('metodo', 'rota', 'corpo'),
+    [
+        ('GET', '/v1/tickets/', None),
+        (
+            'POST',
+            '/v1/tickets/',
+            {
+                'titulo': 'Titulo valido com mais de 10 caracteres',
+                'descricao': 'Descricao valida',
+            },
+        ),
+        ('PUT', '/v1/tickets/1', {'titulo': 'Novo titulo que muda o ticket'}),
+    ],
+    ids=['listar', 'criar', 'atualizar'],
+)
+async def test_usuario_inativo_nao_acessa_rotas_de_ticket(metodo, rota, corpo):
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+    app.dependency_overrides[get_current_user] = lambda: 'usr_teste'
+
+    try:
+        _semear_usuario_e_ticket_classificado()
+        with Session(engine_test) as session:
+            usuario = session.get(User, 1)
+            usuario.is_active = False
+            session.add(usuario)
+            session.commit()
+
+        mock_response = AsyncMock()
+        mock_response.text = (
+            '{"categoria": "Bug","urgencia": "Alta", "resumo": "Atualizado"}'
+        )
+
+        with patch(ALVO_IA, return_value=mock_response) as mock_ai:
+            tp = ASGITransport(app=app, raise_app_exceptions=False)
+            async with AsyncClient(
+                transport=tp, base_url='http://test'
+            ) as ac:
+                response = await ac.request(metodo, rota, json=corpo)
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.json()['detail'] == 'Usuário inativo'
+        mock_ai.assert_not_called()
+
+        with Session(engine_test) as session:
+            tickets = session.exec(select(Ticket)).all()
+            assert len(tickets) == 1
+            assert tickets[0].titulo == 'Titulo Antigo do Ticket'
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_login_de_usuario_inativo_deve_falhar():
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+
+    try:
+        _semear_usuario(is_active=False, senha=hash_password('segredo123'))
+
+        tp = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=tp, base_url='http://test') as ac:
+            response = await ac.post(
+                '/v1/auth/token/',
+                data={'username': 'usr_teste', 'password': 'segredo123'},
+            )
+
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert 'access_token' not in response.json()
+    finally:
+        app.dependency_overrides.clear()
+        SQLModel.metadata.drop_all(engine_test)
+
+
+@pytest.mark.anyio
+async def test_fluxo_com_token_real_do_cadastro_ate_a_listagem():
+    # Sem substituir get_current_user: o JWT emitido no login é o que
+    # autentica as rotas de ticket.
+    SQLModel.metadata.create_all(engine_test)
+    app.dependency_overrides[get_session] = sbrescrever_get_session
+
+    try:
+        tp = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=tp, base_url='http://test') as ac:
+            cadastro = await ac.post(
+                '/v1/users/',
+                json={
+                    'username': 'ana_real',
+                    'email': 'ana_real@system.com',
+                    'password': 'segredo123',
+                },
+            )
+            assert cadastro.status_code == HTTPStatus.CREATED
+
+            login = await ac.post(
+                '/v1/auth/token/',
+                data={'username': 'ana_real', 'password': 'segredo123'},
+            )
+            assert login.status_code == HTTPStatus.OK
+            token = login.json()['access_token']
+
+        headers = {'Authorization': f'Bearer {token}'}
+        criado, _ = await _post_ticket_com_ia_simulada(
+            '{"categoria": "Bug","urgencia": "Alta", "resumo": "Teste"}',
+            headers=headers,
+        )
+        assert criado.status_code == HTTPStatus.CREATED
+
+        tp = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=tp, base_url='http://test') as ac:
+            lista = await ac.get('/v1/tickets/', headers=headers)
+            adulterado = await ac.get(
+                '/v1/tickets/',
+                headers={'Authorization': f'Bearer {token}x'},
+            )
+
+        assert lista.status_code == HTTPStatus.OK
+        assert len(lista.json()) == 1
+        assert lista.json()[0]['dados_originais']['categoria'] == 'Bug'
+        assert adulterado.status_code == HTTPStatus.UNAUTHORIZED
     finally:
         app.dependency_overrides.clear()
         SQLModel.metadata.drop_all(engine_test)
