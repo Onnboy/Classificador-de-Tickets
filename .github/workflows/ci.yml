@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-e-testes:
+    runs-on: ubuntu-latest
+    env:
+      # Valores falsos: os testes usam SQLite em memória e simulam o
+      # Gemini com mock. Nenhum segredo real é necessário na CI.
+      GEMINI_API_KEY: chave-falsa
+      DATABASE_URL: sqlite://
+      SECRET_KEY: segredo-de-teste-apenas-para-a-ci-0123456789
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instala o Poetry
+        run: pipx install poetry==2.3.4
+
+      - name: Instala as dependências
+        run: poetry install --no-interaction
+
+      - name: Lint
+        run: poetry run ruff check
+
+      - name: Testes
+        run: poetry run python -m pytest -q
