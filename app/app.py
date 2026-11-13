@@ -85,6 +85,14 @@ async def classificar_com_ia(titulo: str, descricao: str) -> RespostaIA | None:
         return None
 
 
+def exigir_usuario_ativo(usuario: User) -> None:
+    if not usuario.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Usuário inativo',
+        )
+
+
 @app.get('/health/')
 def read_state():
     return {'estado': 'EM ATIVIDADE'}
@@ -110,6 +118,8 @@ async def create_ticket(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Usuario do token não encontrado no sistema!',
         )
+
+    exigir_usuario_ativo(user_db)
 
     classificacao = await classificar_com_ia(ticket.titulo, ticket.descricao)
 
@@ -162,6 +172,8 @@ async def update_ticket(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Usuario do token não encontrado no sistema!',
         )
+
+    exigir_usuario_ativo(user_db)
 
     ticket_bd = session.get(Ticket, id)
 
@@ -229,6 +241,8 @@ async def list_tickets(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Usuário não encontrado',
         )
+
+    exigir_usuario_ativo(user_db)
 
     tickets = session.exec(
         select(Ticket).where(Ticket.usuario_id == user_db.id)
@@ -302,6 +316,10 @@ async def login_for_access_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail='Usuário ou senha incorretos',
         )
+
+    # Só depois de a senha conferir, para não revelar a quem erra a
+    # senha que a conta existe e está inativa.
+    exigir_usuario_ativo(user)
 
     access_token = create_access_token(data={'sub': user.username})
     return {'access_token': access_token, 'token_type': 'bearer'}
