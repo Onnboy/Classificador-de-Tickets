@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = 'HS256'
+    DB_ECHO: bool = False
 
 
 settings = Settings()
