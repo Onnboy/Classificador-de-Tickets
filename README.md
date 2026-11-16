@@ -29,6 +29,9 @@ O usuário, a senha e o banco da `DATABASE_URL` acima são os do
 `docker-compose.yml` e servem só para desenvolvimento local. Para gerar a
 `SECRET_KEY`: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
+Opcional: `DB_ECHO=true` faz o SQLAlchemy logar todo SQL executado, com os
+valores das consultas. Fica desligado por padrão; use só para depurar.
+
 ## Como rodar
 
 ```bash

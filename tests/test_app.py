@@ -868,9 +868,7 @@ async def test_update_ticket_resposta_invalida_da_ia_salva_como_erro():
 
         with patch(ALVO_IA, return_value=mock_response):
             tp = ASGITransport(app=app, raise_app_exceptions=False)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 response = await ac.put(
                     '/v1/tickets/1',
                     json={'titulo': 'Novo titulo que muda o ticket'},
@@ -925,9 +923,7 @@ async def test_usuario_inativo_nao_acessa_rotas_de_ticket(metodo, rota, corpo):
 
         with patch(ALVO_IA, return_value=mock_response) as mock_ai:
             tp = ASGITransport(app=app, raise_app_exceptions=False)
-            async with AsyncClient(
-                transport=tp, base_url='http://test'
-            ) as ac:
+            async with AsyncClient(transport=tp, base_url='http://test') as ac:
                 response = await ac.request(metodo, rota, json=corpo)
 
         assert response.status_code == HTTPStatus.FORBIDDEN
