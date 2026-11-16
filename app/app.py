@@ -1,5 +1,3 @@
-from contextlib import asynccontextmanager
-
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from google import genai
@@ -13,7 +11,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.database import criar_db_table, get_session
+from app.database import get_session
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.schemas import (
@@ -26,14 +24,9 @@ from app.schemas import (
     UserPublic,
 )
 
-
-@asynccontextmanager
-async def initialization(_: FastAPI):
-    criar_db_table()
-    yield
-
-
-app = FastAPI(lifespan=initialization)
+# O schema do banco é criado e atualizado pelas migrações do Alembic
+# (alembic upgrade head), não na inicialização da aplicação.
+app = FastAPI()
 router = APIRouter(prefix='/v1')
 
 

@@ -21,7 +21,7 @@ Crie um arquivo `.env` na raiz do projeto. Ele não é versionado:
 
 ```dotenv
 GEMINI_API_KEY=sua-chave-do-gemini
-DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/tickets_db
+DATABASE_URL=postgresql://user:password@localhost:5432/tickets_db
 SECRET_KEY=um-segredo-longo-e-aleatorio-com-32-bytes-ou-mais
 ```
 
@@ -36,8 +36,13 @@ valores das consultas. Fica desligado por padrão; use só para depurar.
 
 ```bash
 docker compose up -d
+poetry run alembic upgrade head
 poetry run fastapi dev app/app.py
 ```
+
+O `alembic upgrade head` cria as tabelas num banco vazio e aplica as migrações
+que faltam num banco existente. Rode-o de novo sempre que puxar uma mudança
+que traga migração nova.
 
 A documentação interativa fica em <http://127.0.0.1:8000/docs>.
 
@@ -48,8 +53,33 @@ A documentação interativa fica em <http://127.0.0.1:8000/docs>.
 Se a porta 5432 já estiver em uso por um PostgreSQL instalado na máquina, pare
 esse serviço ou mude a porta no `docker-compose.yml` e na `DATABASE_URL`.
 
-As tabelas são criadas na inicialização. Ainda não há migrações: uma mudança
-de coluna em tabela existente exige recriar o banco.
+## Migrações
+
+O schema do banco é controlado pelo [Alembic](https://alembic.sqlalchemy.org/),
+com as migrações em `migrations/versions/`. A aplicação não cria tabelas ao
+subir: quem cria e altera é o `alembic upgrade head`.
+
+Ao mudar um modelo em `app/models/`, gere a migração, revise o arquivo gerado
+e aplique:
+
+```bash
+poetry run alembic revision --autogenerate -m "descreve a mudança"
+poetry run alembic upgrade head
+```
+
+O autogenerate não detecta tudo (por exemplo, renomear coluna vira remover e
+adicionar), por isso a revisão manual é obrigatória. O teste
+`tests/test_migracoes.py` aplica as migrações num SQLite e as compara com os
+modelos: modelo alterado sem migração quebra a CI.
+
+Banco criado antes do Alembic (pelo antigo `create_all`) já tem as tabelas.
+Nesse caso, confira que não há diferença e marque-o como migrado, sem recriar
+nada:
+
+```bash
+poetry run alembic check
+poetry run alembic stamp head
+```
 
 ## Testes e lint
 
@@ -60,10 +90,11 @@ variáveis falsas, para que o `.env` real não seja carregado:
 env GEMINI_API_KEY=chave-falsa DATABASE_URL=sqlite:// SECRET_KEY=segredo-de-teste \
   poetry run python -m pytest -q
 poetry run ruff check
+poetry run ruff format --check
 ```
 
-A CI (`.github/workflows/ci.yml`) roda os mesmos dois comandos a cada pull
-request e a cada push na `main`.
+A CI (`.github/workflows/ci.yml`) roda os mesmos comandos a cada pull request
+e a cada push na `main`.
 
 ## Rotas
 
@@ -88,6 +119,7 @@ gravado mesmo assim, com categoria `Erro` e prioridade `N/A`.
 - `app/schemas.py`: modelos de entrada e de resposta.
 - `app/models/`: tabelas `Ticket` e `User`.
 - `app/core/security.py`: senha e JWT.
+- `migrations/`: migrações do Alembic (`env.py` e `versions/`).
 - `tests/`: testes com pytest.
 
 ## Convenções
