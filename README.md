@@ -74,13 +74,36 @@ adicionar), por isso a revisão manual é obrigatória. O teste
 `tests/test_migracoes.py` aplica as migrações num SQLite e as compara com os
 modelos: modelo alterado sem migração quebra a CI.
 
-Banco criado antes do Alembic (pelo antigo `create_all`) já tem as tabelas.
-Nesse caso, confira que não há diferença e marque-o como migrado, sem recriar
-nada:
+### Banco criado antes do Alembic
+
+Um banco criado pelo antigo `create_all` já tem as tabelas, mas não tem a
+tabela `alembic_version`. Antes do primeiro `task run` (ou `alembic upgrade
+head`) depois desta mudança, ele precisa ser marcado como migrado (`stamp`) ou
+recriado; senão o upgrade tenta criar as tabelas de novo e falha com
+`relation "user" already exists`.
+
+Para preservar os dados, primeiro compare o banco com os modelos. A comparação
+só lê o banco; o `alembic check` não serve aqui, porque exige um banco já
+marcado e falha com `Target database is not up to date`:
 
 ```bash
-poetry run alembic check
+poetry run python -c 'from alembic.autogenerate import compare_metadata; from alembic.migration import MigrationContext; from sqlalchemy import create_engine; from sqlmodel import SQLModel; from app.config import settings; import app.models.user, app.models.ticket; c = create_engine(settings.DATABASE_URL).connect(); print(compare_metadata(MigrationContext.configure(c), SQLModel.metadata) or "sem diferenças")'
+```
+
+Só se a saída for `sem diferenças`, marque e confirme:
+
+```bash
 poetry run alembic stamp head
+poetry run alembic check    # No new upgrade operations detected.
+```
+
+O `stamp` só grava a revisão em `alembic_version`; para desfazê-lo, use
+`poetry run alembic stamp base`. Se os dados forem descartáveis, recrie o
+banco em vez disso:
+
+```bash
+docker compose down -v
+poetry run task run
 ```
 
 ## Testes e lint
