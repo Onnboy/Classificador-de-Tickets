@@ -21,7 +21,7 @@ Crie um arquivo `.env` na raiz do projeto. Ele não é versionado:
 
 ```dotenv
 GEMINI_API_KEY=sua-chave-do-gemini
-DATABASE_URL=postgresql://user:password@localhost:5432/tickets_db
+DATABASE_URL=postgresql://user:password@localhost:5433/tickets_db
 SECRET_KEY=um-segredo-longo-e-aleatorio-com-32-bytes-ou-mais
 ```
 
@@ -44,14 +44,16 @@ O `alembic upgrade head` cria as tabelas num banco vazio e aplica as migrações
 que faltam num banco existente. Rode-o de novo sempre que puxar uma mudança
 que traga migração nova.
 
+Ou, com o mesmo efeito, `poetry run task run`: ele sobe o banco, espera o
+healthcheck do PostgreSQL ficar saudável, aplica as migrações e inicia o
+servidor. Os dados ficam no volume `postgres_data` e são preservados entre
+execuções.
+
 A documentação interativa fica em <http://127.0.0.1:8000/docs>.
 
-> **Cuidado com `task run`.** Ele executa `sudo systemctl stop postgresql` e
-> `docker compose down -v` antes de subir o servidor, e o `-v` apaga o volume
-> do banco: todos os dados locais são perdidos a cada execução.
-
-Se a porta 5432 já estiver em uso por um PostgreSQL instalado na máquina, pare
-esse serviço ou mude a porta no `docker-compose.yml` e na `DATABASE_URL`.
+O container do PostgreSQL publica a porta 5433 na máquina (`"5433:5432"` no
+`docker-compose.yml`), para não conflitar com um PostgreSQL instalado no
+sistema na 5432. A `DATABASE_URL` precisa usar a mesma porta.
 
 ## Migrações
 
