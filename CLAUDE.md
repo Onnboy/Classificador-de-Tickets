@@ -8,6 +8,7 @@ API FastAPI que recebe tickets e os classifica com o Gemini. SQLModel sobre Post
 - `app/schemas.py`: modelos de entrada e de resposta.
 - `app/models/`: tabelas `Ticket` e `User`.
 - `app/core/security.py`: senha e JWT.
+- `migrations/`: Alembic; o schema vem das migrações, a aplicação não cria tabelas.
 - `tests/`: pytest com `TestClient`, SQLite em memória e Gemini simulado com mock.
 
 ## Comandos
@@ -23,7 +24,8 @@ Lint e formatação: `.venv/bin/ruff check` e `.venv/bin/ruff format`.
 
 ## Regras
 
-- Não rode `task run`: ele executa `sudo systemctl stop postgresql` e `docker compose down -v`, que apaga o volume do banco.
+- Não rode `task run`: ele sobe o PostgreSQL do docker-compose, aplica as migrações no banco real (`alembic upgrade head`) e deixa o servidor rodando. Quem roda é o usuário. Ele não apaga mais o volume do banco.
+- Modelo alterado em `app/models/` exige migração nova em `migrations/versions/`, revisada à mão; sem ela, `tests/test_migracoes.py` falha. Gere-a com `alembic revision --autogenerate` contra um SQLite temporário (`DATABASE_URL=sqlite:///$TMPDIR/x.db` mais as variáveis falsas), nunca contra o banco real.
 - Não rode `task test` nem `pytest` sem as variáveis acima: o `.env` real seria carregado, e um teste sem mock chamaria a API paga do Gemini.
 - Todo teste que passe por uma rota que classifica ticket precisa de mock em `client.aio.models.generate_content`.
 - Um schema usado como `response_model` não deve carregar validadores de entrada: dados antigos do banco que não passam na regra viram erro 500. Use um modelo de resposta separado.
